@@ -2,6 +2,7 @@ import 'package:awesome_dialog/awesome_dialog.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:tour/Widgets/custombuttomauth.dart';
 import 'package:tour/Widgets/textformfield.dart';
@@ -20,6 +21,8 @@ class _LoginState extends State<Login> {
   TextEditingController email = TextEditingController();
   TextEditingController password = TextEditingController();
   GlobalKey<FormState> formState = GlobalKey<FormState>();
+
+  bool _isPasswordVisible = false; // Add this line
 
   void showInvalidCredentialsDialog(BuildContext context) {
     AwesomeDialog(
@@ -76,7 +79,7 @@ class _LoginState extends State<Login> {
                   ),
                   const SizedBox(height: 60),
                   const Text(
-                    'Login to Continue Using The App',
+                    'Login to Continue Using JoTour',
                     style: TextStyle(color: Color.fromARGB(255, 119, 116, 116)),
                   ),
                   const SizedBox(height: 20),
@@ -103,11 +106,24 @@ class _LoginState extends State<Login> {
                   CustomTextForm(
                     hinttext: "Enter Your Password",
                     mycontroller: password,
-                    obscureText: true,
+                    obscureText: !_isPasswordVisible,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _isPasswordVisible
+                            ? Icons.visibility
+                            : Icons.visibility_off,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _isPasswordVisible = !_isPasswordVisible;
+                        });
+                      },
+                    ),
                     validator: (val) {
                       if (val == "") {
                         return "Please Enter A Password";
                       }
+                      return null;
                     },
                   ),
                   const SizedBox(height: 10),
@@ -169,6 +185,24 @@ class _LoginState extends State<Login> {
                     );
 
                     if (userCredential.user != null) {
+                      // Declare firstName outside the Firestore query
+                      String? firstName;
+
+                      // Fetch user's first name from Firestore
+                      var docSnapshot = await FirebaseFirestore.instance
+                          .collection("Users")
+                          .doc(userCredential.user!.email)
+                          .get();
+
+                      if (docSnapshot.exists) {
+                        firstName = docSnapshot.data()?["first_name"];
+                      }
+
+                      // If first name is available, show welcome toast
+                      if (firstName != null && firstName.isNotEmpty) {
+                        Fluttertoast.showToast(msg: "Welcome $firstName");
+                      }
+
                       Navigator.pushNamed(context, 'homepage');
                     } else {
                       print('User not found or invalid credentials');
@@ -177,21 +211,15 @@ class _LoginState extends State<Login> {
                   } on FirebaseAuthException catch (e) {
                     print('Error code: ${e.code}');
                     print('Error message: ${e.message}');
-
-                    if (e.code == "invalid-email") {
-                      print('Invalid Email.');
-                      showInvalidCredentialsDialog(context);
-                    } else {
-                      // Handle other cases or display a generic error message
-                      print('Authentication failed. Please try again.');
-                      showInvalidCredentialsDialog(context);
-                    }
+                    // Handle specific errors
+                    showInvalidCredentialsDialog(context);
                   }
                 } else {
                   print('Form validation failed');
                 }
               },
             ),
+
             // CustomButtomAuth(
             //   title: "Login",
             //   onPressed: () async {
@@ -305,9 +333,11 @@ class _LoginState extends State<Login> {
     );
   }
 
-  Future<void> _handleSignInWithGoogle() async {
+ Future<void> _handleSignInWithGoogle() async {
+    await GoogleSignIn().signOut();
+
   final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-  
+
   if (googleUser == null) {
     // User canceled the Google Sign-In process
     return;
@@ -328,6 +358,12 @@ class _LoginState extends State<Login> {
         await FirebaseAuth.instance.signInWithCredential(credential);
 
     if (userCredential.user != null) {
+      // Extract first name and last name
+      String fullName = userCredential.user!.displayName ?? 'Default Name';
+      List<String> names = fullName.split(' ');
+      String firstName = names.isNotEmpty ? names[0] : 'First';
+      String lastName = names.length > 1 ? names[1] : 'Last';
+
       // Check if the user already exists in Firestore
       final DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection('Users')
@@ -336,8 +372,12 @@ class _LoginState extends State<Login> {
 
       if (!userDoc.exists) {
         // If the user doesn't exist, create a new document in Firestore
-        await FirebaseFirestore.instance.collection('Users').doc(userCredential.user!.email).set({
-          'username': userCredential.user!.displayName ?? 'DefaultUsername',
+        await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(userCredential.user!.email)
+            .set({
+          'first_name': firstName,
+          'last_name': lastName,
           'email': userCredential.user!.email,
           'bio': 'Default Bio',
           // Add other necessary fields
